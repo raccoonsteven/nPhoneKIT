@@ -239,19 +239,25 @@ class SerialManager: # AT command sender via class
         system = platform.system()
 
         # Detect port for different systems/OSes
-
-        if system == "Windows": 
-            for i in range(1, 256):
+        if system == "Windows":
+            candidates = [p.device for p in list_ports.comports() if p.device.upper().startswith("COM")]
+            for port in candidates:
                 try:
-                    s = serial.Serial(f"COM{i}")
+                    s = serial.Serial(port, timeout=2)
                     s.close()
-                    return f"COM{i}"
-                except:
-                    pass
+                    return port
+                except (serial.SerialException, PermissionError):
+                    continue
+            return None
+
         elif system == "Darwin":  # macOS
             ports = glob.glob("/dev/tty.usb*")
             return ports[0] if ports else None
+
         else:  # Linux
+            candidates = [p.device for p in list_ports.comports() if p.device.startswith("/dev/ttyACM") or p.device.startswith("/dev/ttyUSB")]
+            if candidates:
+                return candidates[0]
             ports = glob.glob("/dev/ttyACM*") + glob.glob("/dev/ttyUSB*")
             return ports[0] if ports else None
 
@@ -259,25 +265,23 @@ class SerialManager: # AT command sender via class
 
     def send(self, command):
         if not self.ser or not self.ser.is_open:
-            if preload_samsung_modem:
-                if debug_info:
-                    print(strings['noDeviceGenericError'])
-            else:
+            if debug_info:
                 print(strings['noDeviceGenericError'])
-        else:
-            self.ser.flushInput()
-            self.ser.flushOutput()
-            self.ser.write((command.strip() + '\r\n').encode())
-            time.sleep(0.1)
+            return ""
 
-            output = []
-            while True:
-                line = self.ser.readline()
-                if not line:
-                    break
-                output.append(line.decode(errors='ignore').strip())
+        self.ser.flushInput()
+        self.ser.flushOutput()
+        self.ser.write((command.strip() + '\r\n').encode())
+        time.sleep(0.1)
 
-            return '\n'.join(output)
+        output = []
+        while True:
+            line = self.ser.readline()
+            if not line:
+                break
+            output.append(line.decode(errors='ignore').strip())
+
+        return '\n'.join(output)
 
     def close(self):
         if self.ser and self.ser.is_open:
